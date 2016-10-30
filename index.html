@@ -1,0 +1,189 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>Physics Playground</title>
+        <meta name="description" content="visual programming">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="apple-touch-icon" href="apple-touch-icon.png">
+        <!-- Place favicon.ico in the root directory -->
+
+        <style type="text/css">
+        body {margin:0px; padding:0px; width:100%; height:100%;}
+        #canvas { position:fixed; left:0px; top:0px; width:100%; height:100%;}
+        #ui { position:absolute; left:10px; top:10px; display:table; text-align: center; vertical-align: middle;}
+        .ui-element { width: 80px; height: 80px; border-radius: 12px; background-color:#ccc; color:#000; display:table-cell;}
+
+        </style>
+
+    </head>
+
+    <body>
+        <!--[if lt IE 8]>
+            <p class="browserupgrade">You are using an <strong>outdated</strong> browser. Please <a href="http://browsehappy.com/">upgrade your browser</a> to improve your experience.</p>
+        <![endif]-->
+        
+        <script src="sebz.js"></script>
+        <script src="sebz-physics.js"></script>
+
+        <canvas id="canvas" width="100%" height="100%"></canvas>
+        <div id="ui">
+            <div id="run" class="ui-element">RUN</div>
+        </div>
+
+        <script id="source">
+        /*global
+        sebz, World, Body, DistanceConstraint, AngleConstraint, Vector2D
+        */
+       (function(window,document){
+            'use strict';
+            
+            var MODE_EDIT=0, MODE_RUN=1;
+            var currentNode=null;
+            var canvas=document.getElementById('canvas');
+            var runBtn = document.getElementById('run')
+            var mode = MODE_RUN;
+            var world = new World( { c2d: canvas.getContext('2d') });
+            var lastFrameTime;
+
+            window.addEventListener('pageshow',init);
+            
+            function init()
+            {
+                sebz.Dom.registerTouchEvents(canvas,onTouchStart);
+                sebz.Dom.registerTouchEvents(runBtn,onRunTouch)
+                window.addEventListener('resize',onResize);
+                onResize();
+                world.c2d.lineStyle='#333333';
+                world.c2d.fillStyle='#999999';
+
+                addWheel(new Vector2D(canvas.width*0.25,canvas.height*0.85));
+                addWheel(new Vector2D(canvas.width*0.55,canvas.height*0.55));
+                addWheel(new Vector2D(canvas.width*0.75,canvas.height*0.85));
+                
+
+                render();
+            }
+
+            function addWheel(position) {
+                var hub=new Body({position:position});
+                world.addBody(hub);
+                var star,firstStar,lastStar=null,radius=50;
+                for(var i=0; i<Math.PI*2; i+=Math.PI*0.25) {
+                    star=new Body({position:new Vector2D(Math.cos(i)*radius,Math.sin(i)*radius).addVector(position)});
+                    world.addBody(star);
+                    world.addConstraint(new DistanceConstraint({a:hub,b:star}));
+                    
+                    if (lastStar) {
+                        world.addConstraint(new DistanceConstraint({a:star,b:lastStar}));
+                        world.addConstraint(new AngleConstraint({a:hub,b:star,c:lastStar}));
+                    }
+                    else firstStar=star;
+                    lastStar=star;                    
+                }
+                world.addConstraint(new DistanceConstraint({a:star,b:firstStar}));
+                world.addConstraint(new AngleConstraint({a:hub,b:star,c:firstStar}));
+            }
+
+            function render()
+            {
+                var frameTime=new Date().getTime()
+                window.requestAnimationFrame(render);
+                world.c2d.clearRect(0, 0, canvas.width, canvas.height);
+                for(var i=0; i<canvas.height; i+=50) {
+                    world.c2d.beginPath();
+                    world.c2d.moveTo(0,i); 
+                    world.c2d.lineTo(canvas.width,i);
+                    world.c2d.stroke();
+                }
+                if (mode == MODE_RUN) {
+                    var dt=(frameTime - lastFrameTime)/1000;
+                    world.update( 1);                                            
+                }
+                lastFrameTime=frameTime;
+                world.render();
+            }            
+
+            function onResize()
+            {
+                canvas.width=window.innerWidth;
+                canvas.height=window.innerHeight;
+            }
+
+            function onRunTouch(e)
+            {
+                if (mode==MODE_EDIT) {
+                    sebz.Dom.setText(runBtn,'EDIT');
+                    mode=MODE_RUN;
+                    world.updateConstraints();
+                    lastFrameTime=new Date().getTime();
+                }
+                else {
+                    sebz.Dom.setText(runBtn,'RUN');
+                    mode=MODE_EDIT;
+                }
+            }
+
+            function onTouchStart(e)
+            {
+                var x = sebz.Dom.getEventX(e);
+                var y = sebz.Dom.getEventY(e);
+                var targetNodes= world.getBodiesAt(new Vector2D(x, y));
+                currentNode=null;
+                if (targetNodes.length) {
+                    // We have a node, we are moving it
+                    currentNode=targetNodes[0];
+                } else {
+                    // We are adding a new node
+                    if (mode==MODE_EDIT) {
+                        currentNode=new Body({ position:new Vector2D(x,y) });
+                        world.addBody(currentNode);
+                    }
+                }                
+                sebz.Dom.addTouchEvents(canvas,onTouchMove,onTouchEnd);
+            }
+
+            function onTouchMove(e)
+            {
+                if (currentNode && mode==MODE_RUN || e.shiftKey) {
+                    var x = sebz.Dom.getEventX(e);
+                    var y = sebz.Dom.getEventY(e);
+                    currentNode.static=true;
+                    currentNode.position=new Vector2D(x,y);
+                }
+            }
+
+            function onTouchEnd(e)
+            {
+                var x = sebz.Dom.getEventX(e);
+                var y = sebz.Dom.getEventY(e);
+                var targetNodes= world.getBodiesAt(new Vector2D(x, y));
+                
+                if (currentNode) {
+                    if (mode==MODE_RUN ) {
+                        currentNode.lastPosition=currentNode.position.clone();
+                        currentNode.position=new Vector2D(x,y);
+                    }
+                    currentNode.static=false;        
+                }
+
+                if (targetNodes.length) {
+                    if (targetNodes[0]!=currentNode) {
+                        if (e.ctrlKey) world.addConstraint(new DistanceConstraint({ a:currentNode, b:targetNodes[0], motor:true }));
+                        else world.addConstraint(new DistanceConstraint({ a:currentNode, b:targetNodes[0] }));
+                    }  
+                }   
+                currentNode=null;        
+                sebz.Dom.removeTouchEvents(canvas,onTouchMove,onTouchEnd);
+            }
+
+
+                    
+        })(window,document);
+        </script>
+
+    </body>
+
+</html>
